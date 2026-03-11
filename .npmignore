@@ -1,1 +1,35 @@
+# Source code and TypeScript config (package runs from dist/)
+src/
+tsconfig.json
+vitest.config.*
+print-eslint-config.js
+
+# Documentation and Assets
+docs/
 assets/
+CHANGELOG.md
+RELEASE.md
+
+# Scripts and local execution
+scripts/
+test-standalone.js
+start.bat
+start.sh
+tools.yaml
+
+# AI and Agent rules/state
+.nucleus/
+.serena/
+.cursor/
+.windsurfrules
+CURSOR.md
+CLAUDE.md
+AGENT.md
+rules.devin.md
+
+# CI/CD
+.github/
+
+# IDE
+.vscode/
+.idea/
