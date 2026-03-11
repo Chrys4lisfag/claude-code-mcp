@@ -16,7 +16,8 @@
     "test:unit": "vitest run --config vitest.config.unit.ts",
     "test:e2e": "npm run build && vitest run --config vitest.config.e2e.ts",
     "test:coverage": "npm run build && vitest --coverage --config vitest.config.unit.ts",
-    "test:watch": "vitest --watch"
+    "test:watch": "vitest --watch",
+    "install-skill": "node -e \"const os=require('os'); const cp=require('child_process'); const script=os.platform()==='win32'?'scripts\\\\install-skill.bat':'bash scripts/install-skill.sh'; cp.execSync(script, {stdio: 'inherit'});\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.2",
