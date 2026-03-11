@@ -1,3 +1,8 @@
+---
+name: claude-skill
+description: This skill allows Gemini CLI to collaborate with Anthropic's Claude Code agent via the Claude Code MCP server. Use this skill when you need a second opinion on architecture, when you have created a complex plan and need it reviewed for gaps, when dealing with highly complex domains (LLVM, assembly, Windows internals, reverse engineering), or when you need Claude to analyze gathered information for deeper insights.
+---
+
 # Claude Code MCP Skill
 
 This skill allows Gemini CLI to collaborate with Anthropic's Claude Code agent via the Claude Code MCP server. It transforms the dynamic into a two-developer team, where Gemini acts as the lead developer and Claude as the expert peer reviewer and collaborator.
@@ -40,7 +45,7 @@ This skill allows Gemini CLI to collaborate with Anthropic's Claude Code agent v
 5. Example tool call for a review:
    ```json
    {
-     "prompt": "Hey Claude, I'm planning to implement persistent session management. My plan is to store the session ID in a .claude-mcp-session file and pass it to the CLI. What edge cases am I missing here?",
+     "prompt": "Hey Claude, I'm planning to implement persistent session management. My plan is to store the session ID in a .claude-skill-session file and pass it to the CLI. What edge cases am I missing here?",
      "workFolder": "/absolute/path/to/project"
    }
    ```
