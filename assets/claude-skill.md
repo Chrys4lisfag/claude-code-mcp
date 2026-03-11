@@ -51,4 +51,4 @@ To automatically install this skill, run the installation script from this repos
 - **macOS/Linux:** `npm run install-skill` or `./scripts/install-skill.sh`
 - **Windows:** `npm run install-skill` or `.\scripts\install-skill.bat`
 
-Once installed, you can activate it in Gemini CLI by running `/skill claude-mcp` or by asking Gemini to "activate the claude-mcp skill".
+Once installed, you can activate it in Gemini CLI by running `/skill claude-skill` or by asking Gemini to "activate the claude-skill skill".

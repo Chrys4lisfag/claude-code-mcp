@@ -2,12 +2,12 @@
 setlocal
 
 :: Define the destination directory for the Gemini CLI skill
-set "DEST_DIR=%USERPROFILE%\.gemini\skills\claude-mcp"
+set "DEST_DIR=%USERPROFILE%\.gemini\skills\claude-skill"
 set "DEST_FILE=%DEST_DIR%\SKILL.md"
 
 :: Get the project root (one level up from this script's directory)
 set "PROJECT_ROOT=%~dp0.."
-set "SOURCE_FILE=%PROJECT_ROOT%\assets\gemini-skill.md"
+set "SOURCE_FILE=%PROJECT_ROOT%\assets\claude-skill.md"
 
 :: Check if the source file exists
 if not exist "%SOURCE_FILE%" (
@@ -27,8 +27,8 @@ if %ERRORLEVEL% equ 0 (
     echo ✅ Successfully installed Claude Code MCP skill for Gemini CLI.
     echo    Location: %DEST_FILE%
     echo.
-    echo    To use it, type '/skill claude-mcp' in your Gemini CLI session,
-    echo    or ask Gemini to 'activate the claude-mcp skill'.
+    echo    To use it, type '/skill claude-skill' in your Gemini CLI session,
+    echo    or ask Gemini to 'activate the claude-skill'.
 ) else (
     echo ❌ Failed to install the skill.
     exit /b 1
