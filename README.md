@@ -2,7 +2,7 @@
 
 <img src="assets/claude_code_mcp_logo.png" alt="Claude Code MCP Logo">
 
-[![npm package](https://img.shields.io/npm/v/@steipete/claude-code-mcp)](https://www.npmjs.com/package/@steipete/claude-code-mcp)
+[![npm package](https://img.shields.io/npm/v/@chrys4lislove/claude-code-mcp)](https://www.npmjs.com/package/@chrys4lislove/claude-code-mcp)
 [![View changelog](https://img.shields.io/badge/Explore%20Changelog-brightgreen)](/CHANGELOG.md)
 
 An MCP (Model Context Protocol) server that allows running Claude Code in one-shot mode with permissions bypassed automatically.
@@ -69,7 +69,7 @@ The recommended way to use this server is by installing it via `npx`.
       "command": "npx",
       "args": [
         "-y",
-        "@steipete/claude-code-mcp@latest"
+        "@chrys4lislove/claude-code-mcp@latest"
       ]
     },
 ```
@@ -81,7 +81,7 @@ The recommended way to use this server is by installing it via `npx`.
       "command": "npx",
       "args": [
         "-y",
-        "@steipete/claude-code-mcp@latest"
+        "@chrys4lislove/claude-code-mcp@latest"
       ],
       "env": {
         "CLAUDE_SESSION_MODE": "persistent",
@@ -97,7 +97,7 @@ The recommended way to use this server is by installing it via `npx`.
       "command": "npx",
       "args": [
         "-y",
-        "@steipete/claude-code-mcp@latest"
+        "@chrys4lislove/claude-code-mcp@latest"
       ],
       "env": {
         "CLAUDE_PROCESS_MODE": "persistent",
@@ -113,7 +113,7 @@ The recommended way to use this server is by installing it via `npx`.
       "command": "npx",
       "args": [
         "-y",
-        "@steipete/claude-code-mcp@latest"
+        "@chrys4lislove/claude-code-mcp@latest"
       ],
       "env": {
         "CLAUDE_PROCESS_MODE": "persistent",
