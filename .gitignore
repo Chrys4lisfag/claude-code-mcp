@@ -24,3 +24,5 @@ coverage/
 # IDE
 .vscode/
 .idea/
+.nucleus
+.serena

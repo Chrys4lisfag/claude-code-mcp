@@ -394,7 +394,8 @@ describe('ClaudeCodeServer Unit Tests', () => {
 
     it('should handle CallToolRequest and execute claude CLI', async () => {
       const mockArgs = { prompt: 'test prompt', workFolder: '/test/workdir' };
-      mockExistsSync.mockImplementation(path => path === '/test/workdir'); // Ensure workFolder exists
+      const resolvedWorkFolder = require('node:path').resolve('/test/workdir');
+      mockExistsSync.mockImplementation(path => path === resolvedWorkFolder); // Ensure workFolder exists
       
       // Make spawnAsync return the expected structure for a successful callToolHandler
       spawnAsyncMock.mockResolvedValueOnce({ stdout: 'CLI command successful', stderr: '', exitCode: 0 });
@@ -404,7 +405,7 @@ describe('ClaudeCodeServer Unit Tests', () => {
       expect(spawnAsyncMock).toHaveBeenCalledWith(
         '/tool/handler/cli/path',
         ['--dangerously-skip-permissions', '-p', mockArgs.prompt], // Corrected arguments
-        { timeout: expect.any(Number), cwd: mockArgs.workFolder } // Corrected arguments & added timeout
+        { timeout: expect.any(Number), cwd: resolvedWorkFolder } // Corrected arguments & added timeout
       );
       // Correct structure for ServerResult<CallToolResult>
       expect(result).toEqual({ content: [{ type: 'text', text: 'CLI command successful' }] });
@@ -412,14 +413,15 @@ describe('ClaudeCodeServer Unit Tests', () => {
 
     it('should handle non-existent workFolder by using default and warning', async () => {
       const mockArgs = { prompt: 'test prompt', workFolder: '/non/existent/folder' };
-      mockExistsSync.mockImplementation(path => path !== '/non/existent/folder');
+      const resolvedNonExistent = require('node:path').resolve('/non/existent/folder');
+      mockExistsSync.mockImplementation(path => path !== resolvedNonExistent);
       mockHomedir.mockReturnValue('/fake/default/home'); // For default work folder path
       // Ensure spawnAsync returns a valid result for this path too
       spawnAsyncMock.mockResolvedValueOnce({ stdout: 'CLI ran in default', stderr: '', exitCode: 0 });
 
       await callToolHandler({ params: { name: 'claude_code', arguments: mockArgs } }, {} as any);
       
-      expect(debugLogMock).toHaveBeenCalledWith(expect.stringContaining('Specified workFolder does not exist: /non/existent/folder. Using default: /fake/default/home')); // Corrected log message
+      expect(debugLogMock).toHaveBeenCalledWith(expect.stringContaining(`Specified workFolder does not exist: ${resolvedNonExistent}. Using default: /fake/default/home`)); // Corrected log message
       expect(spawnAsyncMock).toHaveBeenCalledWith(
         '/tool/handler/cli/path', // command
         ['--dangerously-skip-permissions', '-p', mockArgs.prompt], // Corrected arguments
@@ -433,7 +435,8 @@ describe('ClaudeCodeServer Unit Tests', () => {
       // I will adjust this test to reflect current server behavior or suggest removing if it's not a feature.
       // For now, I'll assume it should test the homedir() fallback when workFolder is bad.
       const mockArgs = { prompt: 'test prompt', workFolder: '/non/existent/folder' };
-      mockExistsSync.mockImplementation(path => path !== '/non/existent/folder');
+      const resolvedNonExistent = require('node:path').resolve('/non/existent/folder');
+      mockExistsSync.mockImplementation(path => path !== resolvedNonExistent);
       mockHomedir.mockReturnValue('/fake/home/from/homedir');
       spawnAsyncMock.mockResolvedValueOnce({ stdout: 'CLI ran in homedir', stderr: '', exitCode: 0 });
       
@@ -443,6 +446,44 @@ describe('ClaudeCodeServer Unit Tests', () => {
         '/tool/handler/cli/path', // command
         ['--dangerously-skip-permissions', '-p', mockArgs.prompt],
         { timeout: expect.any(Number), cwd: '/fake/home/from/homedir' } // Should be homedir
+      );
+    });
+
+    it('should pass sessionId when provided in tool arguments', async () => {
+      const mockArgs = { prompt: 'test prompt with session', sessionId: 'test-session-123' };
+      mockExistsSync.mockReturnValue(true);
+      spawnAsyncMock.mockResolvedValueOnce({ stdout: 'CLI ran with session', stderr: '', exitCode: 0 });
+
+      await callToolHandler({ params: { name: 'claude_code', arguments: mockArgs } }, {} as any);
+
+      expect(spawnAsyncMock).toHaveBeenCalledWith(
+        '/tool/handler/cli/path',
+        ['--dangerously-skip-permissions', '--session-id', 'test-session-123', '-p', mockArgs.prompt],
+        expect.any(Object)
+      );
+    });
+
+    it('should use persistent sessionId when CLAUDE_SESSION_MODE is set to persistent', async () => {
+      // Create a new server instance with the env var set
+      process.env.CLAUDE_SESSION_MODE = 'persistent';
+      const persistentServerInstance = new ClaudeCodeServer();
+      await persistentServerInstance.initPromise;
+      
+      const mockSdkServerInstancePersistent = persistentServerInstance.server as any;
+      const setRequestHandlerCalls = vi.mocked(mockSdkServerInstancePersistent.setRequestHandler).mock.calls;
+      const callToolCall = setRequestHandlerCalls.find((call: [any,any]) => call[0] === CallToolRequestSchema);
+      const callToolHandlerPersistent = callToolCall[1] as any;
+
+      const mockArgs = { prompt: 'test persistent session' };
+      spawnAsyncMock.mockResolvedValueOnce({ stdout: 'CLI ran with persistent session', stderr: '', exitCode: 0 });
+
+      await callToolHandlerPersistent({ params: { name: 'claude_code', arguments: mockArgs } }, {} as any);
+
+      // The 4th argument should be the generated UUID (it checks that the flag is present and followed by string)
+      expect(spawnAsyncMock).toHaveBeenCalledWith(
+        '/tool/handler/cli/path',
+        ['--dangerously-skip-permissions', '--session-id', expect.any(String), '-p', mockArgs.prompt],
+        expect.any(Object)
       );
     });
 

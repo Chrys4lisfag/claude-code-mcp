@@ -11,10 +11,12 @@ import {
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as pathResolve } from 'node:path';
-import { readFileSync } from 'node:fs';
 import { debugLog, findClaudeCli, spawnAsync } from './utils.js';
 import { SERVER_VERSION, CLAUDE_CODE_TOOL_DESCRIPTION_TEMPLATE } from './constants.js';
-import type { ClaudeCodeArgs } from './types.js'; // Import moved interface
+import type { ClaudeCodeArgs, ClaudeCodeConfig, ProcessMode, SessionMode } from './types.js';
+import { parseConfig, DEFAULT_CONFIG } from './types.js';
+import { SessionManager } from './session-manager.js';
+import { ProcessManager, ProcessManagerPool } from './process-manager.js';
 
 // Declare vi as any for TypeScript to recognize Vitest's global in test environments
 declare const vi: any;
@@ -26,7 +28,7 @@ const serverStartupTime = new Date().toISOString();
 
 /**
  * MCP Server for Claude Code
- * Provides a simple MCP tool to run Claude CLI in one-shot mode
+ * Provides a simple MCP tool to run Claude CLI in one-shot or persistent mode
  */
 export class ClaudeCodeServer {
   private server: Server;
@@ -38,23 +40,43 @@ export class ClaudeCodeServer {
   private cliPathResolver: typeof findClaudeCli;
   private spawnFunction: typeof spawnAsync;
 
+  // Configuration
+  private config: ClaudeCodeConfig;
+
+  // Session management
+  private sessionManager: SessionManager | null = null;
+  private legacySessionId: string | null = null; // For backward compatibility
+
+  // Process management
+  private processManagerPool: ProcessManagerPool | null = null;
+
   constructor(options?: {
     cliPathResolver?: typeof findClaudeCli;
     spawnFunction?: typeof spawnAsync;
+    config?: Partial<ClaudeCodeConfig>;
   }) {
     // Allow dependency injection for testing
     this.cliPathResolver = options?.cliPathResolver || findClaudeCli;
     this.spawnFunction = options?.spawnFunction || spawnAsync;
-    
+
+    // Parse configuration from environment variables, with overrides from options
+    this.config = { ...parseConfig(), ...options?.config };
+
+    // Initialize session management based on mode
+    this.initializeSessionManagement();
+
     try {
       // Use the simplified findClaudeCli function
-      this.claudeCliPath = this.cliPathResolver(); // Removed debugMode argument
+      this.claudeCliPath = this.cliPathResolver();
       console.error(`[Setup] Using Claude CLI command/path: ${this.claudeCliPath}`);
     } catch (error: any) {
       console.error(`Failed to initialize Claude CLI path or version: ${error.message}`, error);
       this.claudeCliPath = ''; // Set to empty string so tests can check
     }
-    
+
+    // Initialize process management based on mode
+    this.initializeProcessManagement();
+
     this.packageVersion = SERVER_VERSION;
     this.initPromise = this._initializeClaudeCliVersion(); // Assign the promise
 
@@ -71,26 +93,26 @@ export class ClaudeCodeServer {
     ) as any;
 
     // Fallback for test environments if Server is not properly mocked
-    if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test' && 
-        typeof vi !== 'undefined' && typeof vi.fn === 'function') { 
+    if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test' &&
+        typeof vi !== 'undefined' && typeof vi.fn === 'function') {
       // Only activate fallback if setRequestHandler is missing (i.e., not a real or properly mocked Server)
       if (typeof (this.server as any)?.setRequestHandler !== 'function') {
-        console.error('!!!!!!!!!!!! SERVER FALLBACK ACTIVATED (setRequestHandler missing) !!!!!!!!!!!!'); 
+        console.error('!!!!!!!!!!!! SERVER FALLBACK ACTIVATED (setRequestHandler missing) !!!!!!!!!!!!');
         this.server = {
-          __isViFnFallback: true, 
+          __isViFnFallback: true,
           connect: vi.fn().mockResolvedValue(undefined),
           close: vi.fn().mockResolvedValue(undefined),
           setRequestHandler: vi.fn(),
           setErrorHandler: vi.fn(),
           setBroadcastHandler: vi.fn(),
-          setDisposeHandler: vi.fn(), 
+          setDisposeHandler: vi.fn(),
           sendNotification: vi.fn(),
-          sendProgress: vi.fn(), 
+          sendProgress: vi.fn(),
           getAuthenticatedUser: vi.fn().mockReturnValue(null),
-          dispose: vi.fn(), 
-          isDisposed: vi.fn().mockReturnValue(false), 
-          onDispose: vi.fn(), 
-          onerror: null, 
+          dispose: vi.fn(),
+          isDisposed: vi.fn().mockReturnValue(false),
+          onDispose: vi.fn(),
+          onerror: null,
         } as any;
       }
     }
@@ -100,11 +122,75 @@ export class ClaudeCodeServer {
     this.server.onerror = (error: Error) => console.error('[Error]', error);
     process.on('SIGINT', async () => {
       console.log('Claude Code MCP server shutting down...');
-      await this.server.close();
+      await this.shutdown();
       if (process.env.NODE_ENV !== 'test') {
         process.exit(0);
       }
     });
+
+    // Log configuration
+    this.logConfiguration();
+  }
+
+  /**
+   * Initialize session management based on configuration
+   */
+  private initializeSessionManagement(): void {
+    if (this.config.sessionMode === 'persistent') {
+      const ttlMs = this.config.sessionTtlHours * 60 * 60 * 1000;
+      this.sessionManager = new SessionManager({ ttlMs });
+      console.error(`[Setup] Session persistence enabled (TTL: ${this.config.sessionTtlHours}h)`);
+    } else {
+      // Legacy mode: generate a single session ID if CLAUDE_SESSION_MODE was 'persistent'
+      // This maintains backward compatibility
+      if (process.env.CLAUDE_SESSION_MODE === 'persistent' && !this.sessionManager) {
+        const { randomUUID } = require('node:crypto');
+        this.legacySessionId = randomUUID();
+        console.error(`[Setup] Legacy persistent mode enabled, session ID: ${this.legacySessionId}`);
+      }
+    }
+  }
+
+  /**
+   * Initialize process management based on configuration
+   */
+  private initializeProcessManagement(): void {
+    if (this.config.processMode === 'persistent' && this.claudeCliPath) {
+      const timeoutMs = this.config.cliTimeoutSeconds * 1000;
+      this.processManagerPool = new ProcessManagerPool(
+        this.claudeCliPath,
+        (workFolder: string) => this.getSessionIdForWorkFolder(workFolder),
+        timeoutMs
+      );
+      console.error(`[Setup] Persistent process mode enabled`);
+    }
+  }
+
+  /**
+   * Get or create a session ID for a given workFolder
+   */
+  private getSessionIdForWorkFolder(workFolder: string): string {
+    if (this.sessionManager) {
+      const session = this.sessionManager.getOrCreateSession(workFolder);
+      return session.sessionId;
+    }
+    // Fallback to legacy session ID or generate new one
+    if (this.legacySessionId) {
+      return this.legacySessionId;
+    }
+    const { randomUUID } = require('node:crypto');
+    return randomUUID();
+  }
+
+  /**
+   * Log the current configuration
+   */
+  private logConfiguration(): void {
+    debugLog(`[Config] Process mode: ${this.config.processMode}`);
+    debugLog(`[Config] Session mode: ${this.config.sessionMode}`);
+    debugLog(`[Config] CLI timeout: ${this.config.cliTimeoutSeconds}s`);
+    debugLog(`[Config] Session TTL: ${this.config.sessionTtlHours}h`);
+    debugLog(`[Config] Debug enabled: ${this.config.debugEnabled}`);
   }
 
   /**
@@ -117,7 +203,7 @@ export class ClaudeCodeServer {
       this.claudeCliVersion = this.claudeCliVersionString;
       return;
     }
-    
+
     try {
       debugLog(`[Version] Attempting to fetch Claude CLI version from: ${this.claudeCliPath}`);
       const { stdout } = await this.spawnFunction(this.claudeCliPath, ['--version'], { timeout: 5000 }); // 5s timeout
@@ -162,6 +248,10 @@ export class ClaudeCodeServer {
                   type: 'string',
                   description: 'Mandatory when using file operations or referencing any file. The working directory for the Claude CLI execution. Must be an absolute path.',
                 },
+                sessionId: {
+                  type: 'string',
+                  description: 'Optional session ID for conversation continuity. If not provided, uses server default (persistent mode) or none (stateless mode).',
+                },
               },
               required: ['prompt'],
             },
@@ -171,22 +261,7 @@ export class ClaudeCodeServer {
     });
 
     // Handle tool calls
-    const defaultTimeoutSeconds = 3600; // Default to 60 minutes
-    const timeoutSecondsEnv = process.env.CLAUDE_CLI_TIMEOUT_SECONDS;
-    let executionTimeoutSeconds = defaultTimeoutSeconds;
-
-    if (timeoutSecondsEnv) {
-      const parsedTimeout = parseInt(timeoutSecondsEnv, 10);
-      if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
-        executionTimeoutSeconds = parsedTimeout;
-        debugLog(`[Config] Using custom Claude CLI timeout: ${executionTimeoutSeconds} seconds from CLAUDE_CLI_TIMEOUT_SECONDS.`);
-      } else {
-        debugLog(`[Warning] Invalid value for CLAUDE_CLI_TIMEOUT_SECONDS: "${timeoutSecondsEnv}". Using default: ${defaultTimeoutSeconds} seconds.`);
-      }
-    } else {
-      debugLog(`[Config] Using default Claude CLI timeout: ${defaultTimeoutSeconds} seconds.`);
-    }
-    const executionTimeoutMs = executionTimeoutSeconds * 1000;
+    const executionTimeoutMs = this.config.cliTimeoutSeconds * 1000;
 
     this.server.setRequestHandler(CallToolRequestSchema, async (args: any, call: any): Promise<ServerResult> => {
       debugLog('[Debug] Handling CallToolRequest:', args);
@@ -199,7 +274,7 @@ export class ClaudeCodeServer {
       }
 
       // Robustly access prompt from args.params.arguments
-      const toolArguments = args.params.arguments as ClaudeCodeArgs; // Use the imported type
+      const toolArguments = args.params.arguments as ClaudeCodeArgs;
       let prompt: string;
 
       if (
@@ -232,45 +307,164 @@ export class ClaudeCodeServer {
         debugLog(`[Debug] No workFolder provided, using default CWD: ${effectiveCwd}`);
       }
 
-      try {
-        debugLog(`[Debug] Attempting to execute Claude CLI with prompt: "${prompt}" in CWD: "${effectiveCwd}"`);
-
-        const claudeProcessArgs = ['--dangerously-skip-permissions', '-p', prompt];
-        debugLog(`[Debug] Invoking Claude CLI: ${this.claudeCliPath} ${claudeProcessArgs.join(' ')}`);
-
-        const { stdout, stderr } = await this.spawnFunction(
-          this.claudeCliPath, // Run the Claude CLI directly
-          claudeProcessArgs, // Pass the arguments
-          { timeout: executionTimeoutMs, cwd: effectiveCwd }
-        );
-
-        debugLog('[Debug] Claude CLI stdout:', stdout.trim());
-        if (stderr) {
-          debugLog('[Debug] Claude CLI stderr:', stderr.trim());
-        }
-
-        // Return stdout content, even if there was stderr, as claude-cli might output main result to stdout.
-        return { content: [{ type: 'text', text: stdout }] };
-
-      } catch (error: any) {
-        debugLog('[Error] Error executing Claude CLI:', error);
-        let errorMessage = error.message || 'Unknown error';
-        // Attempt to include stderr and stdout from the error object if spawnAsync attached them
-        if (error.stderr) {
-          errorMessage += `\nStderr: ${error.stderr}`;
-        }
-        if (error.stdout) {
-          errorMessage += `\nStdout: ${error.stdout}`;
-        }
-
-        if (error.signal === 'SIGTERM' || (error.message && error.message.includes('ETIMEDOUT')) || (error.code === 'ETIMEDOUT')) {
-          // Reverting to InternalError due to lint issues, but with a specific timeout message.
-          throw new McpError(ErrorCode.InternalError, `Claude CLI command timed out after ${executionTimeoutMs / 1000}s. Details: ${errorMessage}`);
-        }
-        // ErrorCode.ToolCallFailed should be ErrorCode.InternalError or a more specific execution error if available
-        throw new McpError(ErrorCode.InternalError, `Claude CLI execution failed: ${errorMessage}`);
+      // Choose execution mode
+      if (this.config.processMode === 'persistent' && this.processManagerPool) {
+        return this.executeWithPersistentProcess(prompt, effectiveCwd, toolArguments.sessionId);
+      } else {
+        return this.executeOneshot(prompt, effectiveCwd, toolArguments.sessionId, executionTimeoutMs);
       }
     });
+  }
+
+  /**
+   * Execute a prompt using the oneshot (spawn per request) mode
+   */
+  private async executeOneshot(
+    prompt: string,
+    effectiveCwd: string,
+    requestSessionId?: string,
+    executionTimeoutMs?: number
+  ): Promise<ServerResult> {
+    const timeoutMs = executionTimeoutMs ?? this.config.cliTimeoutSeconds * 1000;
+
+    try {
+      debugLog(`[Debug] Attempting to execute Claude CLI (oneshot) with prompt: "${prompt}" in CWD: "${effectiveCwd}"`);
+
+      // Determine session ID
+      let effectiveSessionId: string | null = requestSessionId || null;
+
+      // If session manager is active and no explicit session ID provided, use persistent session
+      if (!effectiveSessionId && this.sessionManager) {
+        const session = this.sessionManager.getOrCreateSession(effectiveCwd);
+        effectiveSessionId = session.sessionId;
+        debugLog(`[Debug] Using persistent session: ${effectiveSessionId}`);
+      } else if (!effectiveSessionId && this.legacySessionId) {
+        effectiveSessionId = this.legacySessionId;
+      }
+
+      const claudeProcessArgs = ['--dangerously-skip-permissions'];
+
+      if (effectiveSessionId) {
+        claudeProcessArgs.push('--session-id', effectiveSessionId);
+      }
+      claudeProcessArgs.push('-p', prompt);
+
+      debugLog(`[Debug] Invoking Claude CLI: ${this.claudeCliPath} ${claudeProcessArgs.join(' ')}`);
+
+      const { stdout, stderr } = await this.spawnFunction(
+        this.claudeCliPath,
+        claudeProcessArgs,
+        { timeout: timeoutMs, cwd: effectiveCwd }
+      );
+
+      debugLog('[Debug] Claude CLI stdout:', stdout.trim());
+      if (stderr) {
+        debugLog('[Debug] Claude CLI stderr:', stderr.trim());
+      }
+
+      // Touch session to update lastUsedAt
+      if (this.sessionManager && effectiveSessionId) {
+        this.sessionManager.touchSession(effectiveCwd);
+      }
+
+      // Return stdout content, even if there was stderr, as claude-cli might output main result to stdout.
+      return { content: [{ type: 'text', text: stdout }] };
+
+    } catch (error: any) {
+      debugLog('[Error] Error executing Claude CLI:', error);
+      let errorMessage = error.message || 'Unknown error';
+      // Attempt to include stderr and stdout from the error object if spawnAsync attached them
+      if (error.stderr) {
+        errorMessage += `\nStderr: ${error.stderr}`;
+      }
+      if (error.stdout) {
+        errorMessage += `\nStdout: ${error.stdout}`;
+      }
+
+      if (error.signal === 'SIGTERM' || (error.message && error.message.includes('ETIMEDOUT')) || (error.code === 'ETIMEDOUT')) {
+        throw new McpError(ErrorCode.InternalError, `Claude CLI command timed out after ${timeoutMs / 1000}s. Details: ${errorMessage}`);
+      }
+      throw new McpError(ErrorCode.InternalError, `Claude CLI execution failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Execute a prompt using the persistent process mode
+   */
+  private async executeWithPersistentProcess(
+    prompt: string,
+    effectiveCwd: string,
+    requestSessionId?: string
+  ): Promise<ServerResult> {
+    if (!this.processManagerPool) {
+      // Fallback to oneshot if pool not available
+      debugLog('[Warning] ProcessManagerPool not available, falling back to oneshot mode');
+      return this.executeOneshot(prompt, effectiveCwd, requestSessionId);
+    }
+
+    try {
+      debugLog(`[Debug] Attempting to execute Claude CLI (persistent) with prompt: "${prompt}" in CWD: "${effectiveCwd}"`);
+
+      // If a specific session ID is provided, we might need to handle it differently
+      // For now, the pool uses workFolder-based session management
+      if (requestSessionId) {
+        debugLog(`[Debug] Note: Explicit sessionId provided, but persistent mode uses workFolder-based sessions`);
+      }
+
+      // Get or create a process manager for this workFolder
+      const manager = await this.processManagerPool.getManager(effectiveCwd);
+
+      debugLog(`[Debug] Using persistent process with session: ${manager.getSessionId()}`);
+
+      // Send the prompt and wait for response
+      const response = await manager.sendPrompt(prompt);
+
+      debugLog('[Debug] Persistent process response received');
+
+      // Touch session to update lastUsedAt
+      if (this.sessionManager) {
+        this.sessionManager.touchSession(effectiveCwd);
+      }
+
+      return { content: [{ type: 'text', text: response }] };
+
+    } catch (error: any) {
+      debugLog('[Error] Error executing Claude CLI (persistent):', error);
+
+      // If the persistent process failed, try to clean up and potentially fallback
+      if (this.processManagerPool) {
+        try {
+          await this.processManagerPool.removeManager(effectiveCwd);
+        } catch (cleanupError) {
+          debugLog('[Warning] Failed to clean up process manager:', cleanupError);
+        }
+      }
+
+      let errorMessage = error.message || 'Unknown error';
+
+      // Check if it's a timeout error
+      if (error.message && error.message.includes('timed out')) {
+        throw new McpError(ErrorCode.InternalError, `Claude CLI command timed out. Details: ${errorMessage}`);
+      }
+
+      // Check if it's a process exit error
+      if (error.message && error.message.includes('Process exited')) {
+        throw new McpError(ErrorCode.InternalError, `Claude CLI process exited unexpectedly. Details: ${errorMessage}`);
+      }
+
+      throw new McpError(ErrorCode.InternalError, `Claude CLI execution failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Graceful shutdown - stop all persistent processes
+   */
+  public async shutdown(): Promise<void> {
+    if (this.processManagerPool) {
+      debugLog('[Shutdown] Stopping all persistent processes');
+      await this.processManagerPool.stopAll();
+    }
+    await this.server.close();
   }
 
   /**
@@ -288,6 +482,27 @@ export class ClaudeCodeServer {
         process.exit(1);
       }
     }
+  }
+
+  /**
+   * Get the current configuration (for testing)
+   */
+  public getConfig(): ClaudeCodeConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * Get the session manager (for testing)
+   */
+  public getSessionManager(): SessionManager | null {
+    return this.sessionManager;
+  }
+
+  /**
+   * Get the process manager pool (for testing)
+   */
+  public getProcessManagerPool(): ProcessManagerPool | null {
+    return this.processManagerPool;
   }
 }
 

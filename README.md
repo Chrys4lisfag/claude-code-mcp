@@ -39,28 +39,30 @@ This MCP server provides one tool that can be used by LLMs to interact with Clau
 
 ### Environment Variables
 
-- `CLAUDE_CLI_NAME`: Override the Claude CLI binary name or provide an absolute path (default: `claude`). This allows you to use a custom Claude CLI binary. This is useful for:
-  - Using custom Claude CLI wrappers
-  - Testing with mocked binaries
-  - Running multiple Claude CLI versions side by side
-  
-  Supported formats:
-  - Simple name: `CLAUDE_CLI_NAME=claude-custom` or `CLAUDE_CLI_NAME=claude-v2`
-  - Absolute path: `CLAUDE_CLI_NAME=/path/to/custom/claude`
-  
-  Relative paths (e.g., `./claude` or `../claude`) are not allowed and will throw an error.
-  
-  When set to a simple name, the server will look for the specified binary in:
-  1. The system PATH (instead of the default `claude` command)
-  
-  Note: The local user installation path (`~/.claude/local/claude`) will still be checked but only for the default `claude` binary.
+| Variable | Description | Values | Default |
+|----------|-------------|--------|---------|
+| `CLAUDE_PROCESS_MODE` | Controls how the CLI is executed | `oneshot` (new process per request) or `persistent` (long-running process) | `oneshot` |
+| `CLAUDE_SESSION_MODE` | Controls conversation continuity | `stateless` (no persistence) or `persistent` (session saved with TTL) | `stateless` |
+| `CLAUDE_SESSION_TTL_HOURS` | Session time-to-live when using persistent sessions | Any positive integer | `24` |
+| `CLAUDE_CLI_NAME` | Override CLI binary name or absolute path | Binary name or absolute path | `claude` |
+| `CLAUDE_CLI_TIMEOUT_SECONDS` | Timeout for CLI operations | Seconds | `3600` |
+| `MCP_CLAUDE_DEBUG` | Enable debug logging | `true` or `false` | `false` |
 
-- `MCP_CLAUDE_DEBUG`: Enable debug logging (set to `true` for verbose output)
-- `CLAUDE_CLI_TIMEOUT_SECONDS`: Configure the timeout for Claude CLI operations in seconds (default: `3600`). This sets how long the server will wait for a response from the Claude CLI before considering it a timeout.
+**Notes on `CLAUDE_CLI_NAME`:**
+- Simple name: `claude-custom` or `claude-v2`
+- Absolute path: `/path/to/custom/claude`
+- Relative paths are not allowed
+
+When set to a simple name, the server will look for the specified binary in:
+1. The system PATH (instead of the default `claude` command)
+
+Note: The local user installation path (`~/.claude/local/claude`) will still be checked but only for the default `claude` binary.
 
 ## Installation & Usage
 
-The recommended way to use this server is by installing it by using `npx`.
+The recommended way to use this server is by installing it via `npx`.
+
+### Basic Configuration
 
 ```json
     "claude-code-mcp": {
@@ -72,7 +74,7 @@ The recommended way to use this server is by installing it by using `npx`.
     },
 ```
 
-To use a custom Claude CLI binary name, you can specify the environment variable:
+### With Persistent Sessions (recommended for multi-turn conversations)
 
 ```json
     "claude-code-mcp": {
@@ -82,12 +84,13 @@ To use a custom Claude CLI binary name, you can specify the environment variable
         "@steipete/claude-code-mcp@latest"
       ],
       "env": {
-        "CLAUDE_CLI_NAME": "claude-custom"
+        "CLAUDE_SESSION_MODE": "persistent",
+        "CLAUDE_SESSION_TTL_HOURS": "48"
       }
     },
 ```
 
-To use a custom Claude CLI binary name and set a custom timeout:
+### With Persistent Process Mode (for high-throughput scenarios)
 
 ```json
     "claude-code-mcp": {
@@ -97,8 +100,28 @@ To use a custom Claude CLI binary name and set a custom timeout:
         "@steipete/claude-code-mcp@latest"
       ],
       "env": {
-        "CLAUDE_CLI_NAME": "claude-custom",
-        "CLAUDE_CLI_TIMEOUT_SECONDS": "1800"
+        "CLAUDE_PROCESS_MODE": "persistent",
+        "CLAUDE_SESSION_MODE": "persistent"
+      }
+    },
+```
+
+### Full Configuration Example
+
+```json
+    "claude-code-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@steipete/claude-code-mcp@latest"
+      ],
+      "env": {
+        "CLAUDE_PROCESS_MODE": "persistent",
+        "CLAUDE_SESSION_MODE": "persistent",
+        "CLAUDE_SESSION_TTL_HOURS": "24",
+        "CLAUDE_CLI_TIMEOUT_SECONDS": "1800",
+        "CLAUDE_CLI_NAME": "claude",
+        "MCP_CLAUDE_DEBUG": "false"
       }
     },
 ```
