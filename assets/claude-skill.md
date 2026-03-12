@@ -36,6 +36,12 @@ This skill allows Gemini CLI to collaborate with Anthropic's Claude Code agent v
 2. **Consult Claude:** Send the findings to Claude. Ask, "Based on this context, what else should I look for?" or "Can you provide deeper insights into how this system works?"
 3. **Act on Insights:** Use Claude's insights to perform more targeted searches or refine your understanding.
 
+## Anti-Patterns & Bad Practices
+
+- **Forwarding the User Prompt Directly:** Do not act as a simple proxy. **NEVER** take the user's initial prompt and immediately send it to Claude saying "Do this task" or "What should I do here?".
+- **Skipping the Planning Phase:** You must attempt to analyze the codebase and create an initial plan *before* asking Claude for input. Claude is here to review and augment your work, not to do it for you from scratch.
+- **Abdication of Responsibility:** Do not wait for Claude to write the code for you unless the task is explicitly suited for Claude's advanced multi-step capabilities (and even then, you must review the result). You are the lead developer.
+
 ## Tool Usage Instructions:
 
 1. You have access to the `claude_code` tool provided by the Claude Code MCP server.
