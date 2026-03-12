@@ -38,6 +38,7 @@ This skill allows Gemini CLI to collaborate with Anthropic's Claude Code agent v
 
 ## Anti-Patterns & Bad Practices
 
+- **[CRITICAL] Passive Data Gathering:** Gathering raw data (logs, source code, docs) and passing it to Claude asking "What is the problem and how do I fix it?" You MUST analyze the data yourself first, formulate a hypothesis/plan, and ask Claude to *review* your specific proposed solution.
 - **Forwarding the User Prompt Directly:** Do not act as a simple proxy. **NEVER** take the user's initial prompt and immediately send it to Claude saying "Do this task" or "What should I do here?".
 - **Skipping the Planning Phase:** You must attempt to analyze the codebase and create an initial plan *before* asking Claude for input. Claude is here to review and augment your work, not to do it for you from scratch.
 - **Abdication of Responsibility:** Do not wait for Claude to write the code for you unless the task is explicitly suited for Claude's advanced multi-step capabilities (and even then, you must review the result). You are the lead developer.
