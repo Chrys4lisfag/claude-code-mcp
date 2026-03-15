@@ -19,9 +19,12 @@ This MCP server provides one tool that can be used by LLMs to interact with Clau
 - Execute Claude Code with any prompt without permission interruptions
 - Access file editing capabilities directly
 - Enable specific tools by default
+- **Maintain context across tool calls** with file-based session persistence and a high-performance long-running background process (REPL mode).
 
 ## Benefits
 
+- **Blazing Fast Iterations:** When configured with `CLAUDE_PROCESS_MODE="persistent"`, the server keeps a single Claude Code process alive using stream-json mode. This completely eliminates the 2-5 second "cold start" delay per tool call and dramatically reduces token usage because context doesn't need to be repeatedly re-injected.
+- **Persistent Memory:** Sessions are saved directly to your workspace (in a `.claude-mcp-session` file) and automatically resume. If you close your agent and come back tomorrow, Claude remembers everything you were working on!
 - Claude/Windsurf often have trouble editing files. Claude Code is better and faster at it.
 - Multiple commands can be queued instead of direct execution. This saves context space so more important stuff is retained longer, fewer compacts happen.
 - File ops, git, or other operations don't need costy models. Claude Code is pretty cost effective if you sign up for Antropic Max. You can use Gemini or o3 in Max mode and save costs with offloading tasks to cheaper models.
