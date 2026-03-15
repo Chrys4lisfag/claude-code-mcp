@@ -21,7 +21,7 @@ describe('Claude Code MCP E2E Tests', () => {
     client = new MCPTestClient(serverPath, {
           MCP_CLAUDE_DEBUG: 'true',
           CLAUDE_CLI_NAME: process.execPath,
-          CLAUDE_CLI_ARGS: join(tmpdir(), 'claude-code-test-mock', 'claudeMocked'),
+          CLAUDE_CLI_ARGS: join(tmpdir(), 'claude-code-test-mock', (await getSharedMock() as any).binaryName || 'claudeMocked'),
         });
     
     await client.connect();

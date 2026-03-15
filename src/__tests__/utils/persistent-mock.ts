@@ -2,16 +2,19 @@ import { tmpdir } from "node:os";
 import { ClaudeMock } from './claude-mock.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 let sharedMock: ClaudeMock | null = null;
+let mockName: string | null = null;
 
 export async function getSharedMock(): Promise<ClaudeMock> {
   if (!sharedMock) {
-    sharedMock = new ClaudeMock('claudeMocked');
+    mockName = `claudeMocked-${randomUUID()}`;
+    sharedMock = new ClaudeMock(mockName);
   }
   
   // Always ensure mock exists
-  const mockPath = join(tmpdir(), 'claude-code-test-mock', 'claudeMocked');
+  const mockPath = join(tmpdir(), 'claude-code-test-mock', mockName!);
   if (!existsSync(mockPath)) {
     console.error(`[DEBUG] Mock not found at ${mockPath}, creating it...`);
     await sharedMock.setup();

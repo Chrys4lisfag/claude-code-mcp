@@ -544,5 +544,43 @@ describe('ClaudeCodeServer Unit Tests', () => {
         expect(e.code).toBe(ErrorCode.InternalError); 
       }
     });
+    it('should retry on persistent session collision (already in use error)', async () => {
+      process.env.CLAUDE_PROCESS_MODE = 'persistent';
+      const persistentServerInstance = new ClaudeCodeServer();
+      await persistentServerInstance.initPromise;
+
+      const mockSdkServerInstancePersistent = persistentServerInstance.server as any;
+      const setRequestHandlerCalls = vi.mocked(mockSdkServerInstancePersistent.setRequestHandler).mock.calls;
+      const callToolCall = setRequestHandlerCalls.find((call: [any,any]) => call[0] === CallToolRequestSchema);
+      const callToolHandlerPersistent = callToolCall[1] as any;
+
+      const mockArgs = { prompt: 'test persistent collision' };
+      
+      // Mock the process manager pool methods
+      const pool = persistentServerInstance.getProcessManagerPool()!;
+      const mockManager = {
+        getSessionId: () => 'colliding-session-id',
+        sendPrompt: vi.fn()
+          .mockRejectedValueOnce(new Error('Process exited: Session ID is already in use'))
+          .mockResolvedValueOnce('Success on retry'),
+        getDebugStatus: () => ({}),
+        stop: vi.fn(),
+        isProcessRunning: () => true,
+        start: vi.fn()
+      };
+
+      vi.spyOn(pool, 'getManager').mockResolvedValue(mockManager as any);
+      vi.spyOn(pool, 'getExistingManager').mockReturnValue(mockManager as any);
+      vi.spyOn(pool, 'removeManager').mockResolvedValue(undefined);
+
+      const response = await callToolHandlerPersistent({ params: { name: 'claude_code', arguments: mockArgs } }, {} as any);
+
+      // Should have been called twice (once initial, once retry)
+      expect(mockManager.sendPrompt).toHaveBeenCalledTimes(2);
+      // Second call to getManager should have a generated throwaway session ID (not the default undefined)
+      expect(pool.getManager).toHaveBeenLastCalledWith(expect.any(String), expect.any(String));
+      expect(response.content[0].text).toBe('Success on retry');
+    });
+
   });
 });

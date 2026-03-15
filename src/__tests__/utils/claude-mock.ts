@@ -10,7 +10,10 @@ export class ClaudeMock {
   private mockPath: string;
   private responses = new Map<string, string>();
 
+  public readonly binaryName: string;
+
   constructor(binaryName: string = 'claude') {
+    this.binaryName = binaryName;
     // Always use /tmp directory for mocks in tests
     this.mockPath = join(tmpdir(), 'claude-code-test-mock', binaryName);
   }
@@ -31,29 +34,73 @@ export class ClaudeMock {
 const args = process.argv.slice(2);
 let prompt = "";
 let verbose = false;
+let outputFormat = "text";
+let inputFormat = "text";
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '-p' || args[i] === '--prompt') {
     prompt = args[i + 1] || "";
-    i++; // Skip next argument as it's the prompt value
+    i++;
   } else if (args[i] === '--verbose') {
     verbose = true;
   } else if (args[i] === '--version') {
     console.log("Mock Claude CLI v1.0.0");
     process.exit(0);
+  } else if (args[i] === '--output-format') {
+    outputFormat = args[i + 1];
+    i++;
+  } else if (args[i] === '--input-format') {
+    inputFormat = args[i + 1];
+    i++;
   }
 }
 
-if (prompt.includes("create") || prompt.includes("Create")) {
-  console.log("Created file successfully");
-} else if (prompt.includes("git") && prompt.includes("commit")) {
-  console.log("Committed changes successfully");
-} else if (prompt.includes("error")) {
-  console.error("Error: Mock error response");
-  process.exit(1);
-} else {
-  console.log("Command executed successfully");
+function handlePrompt(p) {
+  let resultText = "Command executed successfully";
+  if (p.includes("create") || p.includes("Create")) {
+    resultText = "Created file successfully";
+  } else if (p.includes("git") && p.includes("commit")) {
+    resultText = "Committed changes successfully";
+  } else if (p.includes("error")) {
+    console.error("Error: Mock error response");
+    process.exit(1);
+  }
+  
+  if (outputFormat === "stream-json") {
+    const msg = {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: resultText }],
+        stop_reason: 'end_turn',
+      }
+    };
+    console.log(JSON.stringify(msg));
+  } else {
+    console.log(resultText);
+  }
 }
+
+if (inputFormat === "stream-json" && !prompt) {
+  const readline = require('readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false
+  });
+  rl.on('line', (line) => {
+    try {
+      const inputObj = JSON.parse(line);
+      if (inputObj && inputObj.message && inputObj.message.content) {
+        handlePrompt(inputObj.message.content);
+      }
+    } catch (e) {
+      console.error("Failed to parse input json");
+    }
+  });
+} else {
+  handlePrompt(prompt);
+}
+
 `;
 
     writeFileSync(this.mockPath, mockScript);

@@ -554,43 +554,51 @@ export class ProcessManagerPool {
   /**
    * Get or create a ProcessManager for the given workFolder
    */
-  async getManager(workFolder: string): Promise<ProcessManager> {
-    let manager = this.managers.get(workFolder);
+  async getManager(workFolder: string, explicitSessionId?: string): Promise<ProcessManager> {
+    const sessionId = explicitSessionId || this.getSessionId(workFolder);
+    const key = `${workFolder}:${sessionId}`;
+    let manager = this.managers.get(key);
 
     if (manager && manager.isProcessRunning()) {
-      debugLog(`[ProcessManagerPool] Reusing existing manager for ${workFolder}`);
+      debugLog(`[ProcessManagerPool] Reusing existing manager for ${key}`);
       return manager;
     }
 
     // Create new manager
-    const sessionId = this.getSessionId(workFolder);
     manager = new ProcessManager({
       claudeCliPath: this.claudeCliPath,
       workFolder,
       sessionId,
       timeoutMs: this.timeoutMs,
       onProcessExit: (code, signal) => {
-        debugLog(`[ProcessManagerPool] Manager for ${workFolder} exited (code: ${code}, signal: ${signal})`);
+        debugLog(`[ProcessManagerPool] Manager for ${key} exited (code: ${code}, signal: ${signal})`);
         // Remove from pool on exit
-        this.managers.delete(workFolder);
+        this.managers.delete(key);
       },
     });
 
     await manager.start();
-    this.managers.set(workFolder, manager);
+    this.managers.set(key, manager);
 
-    debugLog(`[ProcessManagerPool] Created new manager for ${workFolder}`);
+    debugLog(`[ProcessManagerPool] Created new manager for ${key}`);
     return manager;
   }
 
+  getExistingManager(workFolder: string, explicitSessionId?: string): ProcessManager | undefined {
+    const sessionId = explicitSessionId || this.getSessionId(workFolder);
+    const key = `${workFolder}:${sessionId}`;
+    return this.managers.get(key);
+  }
   /**
    * Stop and remove a specific manager
    */
-  async removeManager(workFolder: string): Promise<void> {
-    const manager = this.managers.get(workFolder);
+  async removeManager(workFolder: string, explicitSessionId?: string): Promise<void> {
+    const sessionId = explicitSessionId || this.getSessionId(workFolder);
+    const key = `${workFolder}:${sessionId}`;
+    const manager = this.managers.get(key);
     if (manager) {
       await manager.stop();
-      this.managers.delete(workFolder);
+      this.managers.delete(key);
     }
   }
 
@@ -607,7 +615,11 @@ export class ProcessManagerPool {
    * Get all active workFolders
    */
   getActiveWorkFolders(): string[] {
-    return Array.from(this.managers.keys());
+    const folders = new Set<string>();
+    for (const manager of this.managers.values()) {
+      folders.add(manager.getWorkFolder());
+    }
+    return Array.from(folders);
   }
 
   /**

@@ -21,7 +21,7 @@ describe('Claude Code Edge Cases', () => {
     client = new MCPTestClient(serverPath, {
           MCP_CLAUDE_DEBUG: 'true',
           CLAUDE_CLI_NAME: process.execPath,
-          CLAUDE_CLI_ARGS: join(tmpdir(), 'claude-code-test-mock', 'claudeMocked'),
+          CLAUDE_CLI_ARGS: join(tmpdir(), 'claude-code-test-mock', (await getSharedMock() as any).binaryName || 'claudeMocked'),
         });
     
     await client.connect();
@@ -139,7 +139,7 @@ describe('Claude Code Edge Cases', () => {
   });
 
   describe('Concurrent Requests', () => {
-    it('should handle multiple simultaneous requests', async () => {
+    it('should handle multiple simultaneous requests (oneshot)', async () => {
       const promises = Array(5).fill(null).map((_, i) => 
         client.callTool('claude_code', {
           prompt: `Create file test${i}.txt`,
@@ -149,8 +149,35 @@ describe('Claude Code Edge Cases', () => {
 
       const results = await Promise.allSettled(promises);
       const successful = results.filter(r => r.status === 'fulfilled');
-      
+      if (successful.length === 0) {
+        console.log("FAILED REASONS:", results.filter(r => r.status === 'rejected').map((r: any) => r.reason));
+      }
       expect(successful.length).toBeGreaterThan(0);
+    });
+
+    it('should queue multiple simultaneous requests (persistent)', async () => {
+      const persistentClient = new MCPTestClient(serverPath, {
+        MCP_CLAUDE_DEBUG: 'true',
+        CLAUDE_CLI_NAME: process.execPath,
+        CLAUDE_CLI_ARGS: join(tmpdir(), 'claude-code-test-mock', (await getSharedMock() as any).binaryName || 'claudeMocked'),
+        CLAUDE_PROCESS_MODE: 'persistent'
+      });
+      await persistentClient.connect();
+
+      const promises = Array(5).fill(null).map((_, i) => 
+        persistentClient.callTool('claude_code', {
+          prompt: `Create file persistent${i}.txt`,
+          workFolder: testDir,
+        })
+      );
+      const results = await Promise.allSettled(promises);
+      const successful = results.filter(r => r.status === 'fulfilled');
+      if (successful.length === 0) {
+        console.log("FAILED REASONS:", results.filter(r => r.status === 'rejected').map((r: any) => r.reason));
+      }
+      expect(successful.length).toBeGreaterThan(0);
+      
+      await persistentClient.disconnect();
     });
   });
 

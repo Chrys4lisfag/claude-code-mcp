@@ -9,6 +9,7 @@ import {
   type ServerResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { resolve as pathResolve } from 'node:path';
 import { debugLog, findClaudeCli, spawnAsync } from './utils.js';
@@ -53,6 +54,9 @@ export class ClaudeCodeServer {
 
   // Logger
   private loggers: Map<string, FileLogger> = new Map();
+
+  // Task queues for sequential tool call processing per folder/session
+  private taskQueues: Map<string, Promise<any>> = new Map();
 
   constructor(options?: {
     cliPathResolver?: typeof findClaudeCli;
@@ -158,7 +162,6 @@ export class ClaudeCodeServer {
       // Legacy mode: generate a single session ID if CLAUDE_SESSION_MODE was 'persistent'
       // This maintains backward compatibility
       if (process.env.CLAUDE_SESSION_MODE === 'persistent' && !this.sessionManager) {
-        const { randomUUID } = require('node:crypto');
         this.legacySessionId = randomUUID();
         console.error(`[Setup] Legacy persistent mode enabled, session ID: ${this.legacySessionId}`);
       }
@@ -192,7 +195,6 @@ export class ClaudeCodeServer {
     if (this.legacySessionId) {
       return this.legacySessionId;
     }
-    const { randomUUID } = require('node:crypto');
     return randomUUID();
   }
 
@@ -323,7 +325,20 @@ export class ClaudeCodeServer {
 
       // Choose execution mode
       if (this.config.processMode === 'persistent' && this.processManagerPool) {
-        return this.executeWithPersistentProcess(prompt, effectiveCwd, toolArguments.sessionId);
+        const sessionId = toolArguments.sessionId || this.getSessionIdForWorkFolder(effectiveCwd);
+        const queueKey = `${effectiveCwd}:${sessionId}`;
+        let current = this.taskQueues.get(queueKey) || Promise.resolve();
+        
+        const taskPromise = current.catch(() => {}).then(() => {
+          return this.doExecuteWithPersistentProcess(prompt, effectiveCwd, toolArguments.sessionId);
+        }).finally(() => {
+          if (this.taskQueues.get(queueKey) === taskPromise) {
+            this.taskQueues.delete(queueKey);
+          }
+        });
+        
+        this.taskQueues.set(queueKey, taskPromise);
+        return taskPromise;
       } else {
         return this.executeOneshot(prompt, effectiveCwd, toolArguments.sessionId, executionTimeoutMs);
       }
@@ -414,10 +429,11 @@ export class ClaudeCodeServer {
   /**
    * Execute a prompt using the persistent process mode
    */
-  private async executeWithPersistentProcess(
+  private async doExecuteWithPersistentProcess(
     prompt: string,
     effectiveCwd: string,
-    requestSessionId?: string
+    requestSessionId?: string,
+    attempt: number = 1
   ): Promise<ServerResult> {
     if (!this.processManagerPool) {
       // Fallback to oneshot if pool not available
@@ -428,17 +444,11 @@ export class ClaudeCodeServer {
     const logger = this.getLogger(effectiveCwd);
 
     try {
-      debugLog(`[Debug] Attempting to execute Claude CLI (persistent) with prompt: "${prompt}" in CWD: "${effectiveCwd}"`);
-      logger.log('tool call (persistent)', { prompt: prompt.substring(0, 500) + (prompt.length > 500 ? '...' : '') });
-
-      // If a specific session ID is provided, we might need to handle it differently
-      // For now, the pool uses workFolder-based session management
-      if (requestSessionId) {
-        debugLog(`[Debug] Note: Explicit sessionId provided, but persistent mode uses workFolder-based sessions`);
-      }
+      debugLog(`[Debug] Attempting to execute Claude CLI (persistent) with prompt: "${prompt}" in CWD: "${effectiveCwd}" (Attempt ${attempt})`);
+      logger.log('tool call (persistent)', { prompt: prompt.substring(0, 500) + (prompt.length > 500 ? '...' : ''), attempt });
 
       // Get or create a process manager for this workFolder
-      const manager = await this.processManagerPool.getManager(effectiveCwd);
+      const manager = await this.processManagerPool.getManager(effectiveCwd, requestSessionId);
 
       debugLog(`[Debug] Using persistent process with session: ${manager.getSessionId()}`);
 
@@ -463,17 +473,23 @@ export class ClaudeCodeServer {
       // If the persistent process failed, try to clean up and potentially fallback
       if (this.processManagerPool) {
         try {
-          const manager = await this.processManagerPool.getManager(effectiveCwd);
+          const manager = this.processManagerPool.getExistingManager(effectiveCwd, requestSessionId);
           if (manager) {
             debugStatus = manager.getDebugStatus();
           }
-          await this.processManagerPool.removeManager(effectiveCwd);
+          await this.processManagerPool.removeManager(effectiveCwd, requestSessionId);
         } catch (cleanupError) {
           debugLog('[Warning] Failed to clean up process manager:', cleanupError);
         }
       }
 
       let errorMessage = error.message || 'Unknown error';
+      // Multi-Agent Session Collision Resolution
+      if (errorMessage.includes('is already in use') && attempt === 1) {
+        const throwawayId = randomUUID();
+        debugLog(`[Warning] Session collision detected. Retrying with throwaway session ID: ${throwawayId}`);
+        return this.doExecuteWithPersistentProcess(prompt, effectiveCwd, throwawayId, attempt + 1);
+      }
 
       // Check if it's a timeout error
       if (error.message && error.message.includes('timed out')) {
