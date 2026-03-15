@@ -20,7 +20,8 @@ describe('Claude Code MCP E2E Tests', () => {
     // Initialize MCP client with debug mode and custom binary name using absolute path
     client = new MCPTestClient(serverPath, {
           MCP_CLAUDE_DEBUG: 'true',
-          CLAUDE_CLI_NAME: join(tmpdir(), 'claude-code-test-mock', 'claudeMocked'),
+          CLAUDE_CLI_NAME: process.execPath,
+          CLAUDE_CLI_ARGS: join(tmpdir(), 'claude-code-test-mock', 'claudeMocked'),
         });
     
     await client.connect();
@@ -53,6 +54,10 @@ describe('Claude Code MCP E2E Tests', () => {
             prompt: {
               type: 'string',
               description: 'The detailed natural language prompt for Claude to execute.',
+            },
+            sessionId: {
+              type: 'string',
+              description: expect.any(String),
             },
             workFolder: {
               type: 'string',

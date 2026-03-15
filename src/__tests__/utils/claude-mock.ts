@@ -24,46 +24,45 @@ export class ClaudeMock {
       mkdirSync(dir, { recursive: true });
     }
 
-    // Create a simple bash script that echoes responses
-    const mockScript = `#!/bin/bash
-# Mock Claude CLI for testing
+    // Create a simple JS script that echoes responses
+    const mockScript = `#!/usr/bin/env node
+// Mock Claude CLI for testing
 
-# Extract the prompt from arguments
-prompt=""
-verbose=false
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -p|--prompt)
-      prompt="$2"
-      shift 2
-      ;;
-    --verbose)
-      verbose=true
-      shift
-      ;;
-    --yes|-y|--dangerously-skip-permissions)
-      shift
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
+const args = process.argv.slice(2);
+let prompt = "";
+let verbose = false;
 
-# Mock responses based on prompt
-if [[ "$prompt" == *"create"* ]]; then
-  echo "Created file successfully"
-elif [[ "$prompt" == *"Create"* ]]; then
-  echo "Created file successfully"  
-elif [[ "$prompt" == *"git"* ]] && [[ "$prompt" == *"commit"* ]]; then
-  echo "Committed changes successfully"
-elif [[ "$prompt" == *"error"* ]]; then
-  echo "Error: Mock error response" >&2
-  exit 1
-else
-  echo "Command executed successfully"
-fi
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '-p' || args[i] === '--prompt') {
+    prompt = args[i + 1] || "";
+    i++; // Skip next argument as it's the prompt value
+  } else if (args[i] === '--verbose') {
+    verbose = true;
+  } else if (args[i] === '--version') {
+    console.log("Mock Claude CLI v1.0.0");
+    process.exit(0);
+  }
+}
+
+if (prompt.includes("create") || prompt.includes("Create")) {
+  console.log("Created file successfully");
+} else if (prompt.includes("git") && prompt.includes("commit")) {
+  console.log("Committed changes successfully");
+} else if (prompt.includes("error")) {
+  console.error("Error: Mock error response");
+  process.exit(1);
+} else {
+  console.log("Command executed successfully");
+}
 `;
+
+    writeFileSync(this.mockPath, mockScript);
+    
+    // Create Windows wrapper
+    if (process.platform === 'win32') {
+      const fileName = this.mockPath.split(/[\\\\/]/).pop();
+      writeFileSync(this.mockPath + '.cmd', `@node "%~dp0\\${fileName}" %*`);
+    }
 
     writeFileSync(this.mockPath, mockScript);
     // Make executable
@@ -77,6 +76,9 @@ fi
   async cleanup(): Promise<void> {
     const { rm } = await import('node:fs/promises');
     await rm(this.mockPath, { force: true });
+    if (process.platform === 'win32') {
+      await rm(this.mockPath + '.cmd', { force: true });
+    }
   }
 
   /**

@@ -20,7 +20,8 @@ describe('Claude Code Edge Cases', () => {
     // Initialize client with custom binary name using absolute path
     client = new MCPTestClient(serverPath, {
           MCP_CLAUDE_DEBUG: 'true',
-          CLAUDE_CLI_NAME: join(tmpdir(), 'claude-code-test-mock', 'claudeMocked'),
+          CLAUDE_CLI_NAME: process.execPath,
+          CLAUDE_CLI_ARGS: join(tmpdir(), 'claude-code-test-mock', 'claudeMocked'),
         });
     
     await client.connect();

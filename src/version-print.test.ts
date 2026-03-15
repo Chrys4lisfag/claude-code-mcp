@@ -136,8 +136,8 @@ describe('Version Print on First Use', () => {
     await server.run(); // Run the server
 
     // Check that version was printed on first use to console.error
-    // The version is printed by server.run() via console.log in this version
-    const startupLogCall = consoleLogSpy.mock.calls.find((call: any[]) => 
+    // The version is printed by server.run() via console.error in this version
+    const startupLogCall = consoleErrorSpy.mock.calls.find((call: any[]) => 
         call[0] === 'Claude Code MCP server running on stdio'
     );
     expect(startupLogCall, "Startup log not found").toBeDefined();

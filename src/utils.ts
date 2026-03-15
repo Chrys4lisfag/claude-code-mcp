@@ -62,9 +62,11 @@ export function findClaudeCli(): string {
 // Ensure spawnAsync is defined correctly *before* the class
 export async function spawnAsync(command: string, args: string[], options?: { timeout?: number, cwd?: string }): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    debugLog(`[Spawn] Running command: ${command} ${args.join(' ')}`);
-    const process = spawn(command, args, {
-      shell: false, // Reverted to false
+    const extraArgs = global.process.env.CLAUDE_CLI_ARGS ? [global.process.env.CLAUDE_CLI_ARGS] : [];
+    const fullArgs = [...extraArgs, ...args];
+    debugLog(`[Spawn] Running command: ${command} ${fullArgs.join(' ')}`);
+    const childProcess = spawn(command, fullArgs, {
+      shell: false,
       timeout: options?.timeout,
       cwd: options?.cwd,
       stdio: ['ignore', 'pipe', 'pipe']
@@ -73,13 +75,13 @@ export async function spawnAsync(command: string, args: string[], options?: { ti
     let stdout = '';
     let stderr = '';
 
-    process.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
-    process.stderr.on('data', (data: Buffer) => {
+    childProcess.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    childProcess.stderr.on('data', (data: Buffer) => {
       stderr += data.toString();
       debugLog(`[Spawn Stderr Chunk] ${data.toString()}`);
     });
 
-    process.on('error', (error: NodeJS.ErrnoException) => {
+    childProcess.on('error', (error: NodeJS.ErrnoException) => {
       debugLog(`[Spawn Error Event] Full error object:`, error);
       let errorMessage: string;
 
@@ -94,7 +96,7 @@ export async function spawnAsync(command: string, args: string[], options?: { ti
       }
     });
 
-    process.on('close', (code: number | null) => {
+    childProcess.on('close', (code: number | null) => {
       debugLog(`[Spawn Close] Exit code: ${code}`);
       debugLog(`[Spawn Stderr Full] ${stderr.trim()}`);
       debugLog(`[Spawn Stdout Full] ${stdout.trim()}`);

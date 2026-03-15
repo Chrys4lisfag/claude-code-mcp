@@ -137,11 +137,14 @@ export class ProcessManager extends EventEmitter {
       '--dangerously-skip-permissions',
     ];
 
-    debugLog(`[ProcessManager] Starting Claude CLI: ${this.claudeCliPath} ${args.join(' ')}`);
+    const extraArgs = process.env.CLAUDE_CLI_ARGS ? [process.env.CLAUDE_CLI_ARGS] : [];
+    const fullArgs = [...extraArgs, ...args];
+
+    debugLog(`[ProcessManager] Starting Claude CLI: ${this.claudeCliPath} ${fullArgs.join(' ')}`);
     debugLog(`[ProcessManager] Working directory: ${this.workFolder}`);
 
     try {
-      this.process = spawn(this.claudeCliPath, args, {
+      this.process = spawn(this.claudeCliPath, fullArgs, {
         cwd: this.workFolder,
         stdio: ['pipe', 'pipe', 'pipe'],
         // On Windows, we need shell: false for proper stdin handling
