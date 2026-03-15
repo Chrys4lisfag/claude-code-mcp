@@ -17,6 +17,7 @@ import type { ClaudeCodeArgs, ClaudeCodeConfig, ProcessMode, SessionMode } from 
 import { parseConfig, DEFAULT_CONFIG } from './types.js';
 import { SessionManager } from './session-manager.js';
 import { ProcessManager, ProcessManagerPool } from './process-manager.js';
+import { FileLogger } from './logger.js';
 
 // Declare vi as any for TypeScript to recognize Vitest's global in test environments
 declare const vi: any;
@@ -49,6 +50,9 @@ export class ClaudeCodeServer {
 
   // Process management
   private processManagerPool: ProcessManagerPool | null = null;
+
+  // Logger
+  private loggers: Map<string, FileLogger> = new Map();
 
   constructor(options?: {
     cliPathResolver?: typeof findClaudeCli;
@@ -130,6 +134,16 @@ export class ClaudeCodeServer {
 
     // Log configuration
     this.logConfiguration();
+  }
+
+  /**
+   * Get or create a FileLogger for the given workFolder
+   */
+  private getLogger(workFolder: string): FileLogger {
+    if (!this.loggers.has(workFolder)) {
+      this.loggers.set(workFolder, new FileLogger(workFolder));
+    }
+    return this.loggers.get(workFolder)!;
   }
 
   /**
@@ -326,9 +340,11 @@ export class ClaudeCodeServer {
     executionTimeoutMs?: number
   ): Promise<ServerResult> {
     const timeoutMs = executionTimeoutMs ?? this.config.cliTimeoutSeconds * 1000;
+    const logger = this.getLogger(effectiveCwd);
 
     try {
       debugLog(`[Debug] Attempting to execute Claude CLI (oneshot) with prompt: "${prompt}" in CWD: "${effectiveCwd}"`);
+      logger.log('tool call (oneshot)', { prompt: prompt.substring(0, 200) + (prompt.length > 200 ? '...' : '') });
 
       // Determine session ID
       let effectiveSessionId: string | null = requestSessionId || null;
@@ -382,8 +398,15 @@ export class ClaudeCodeServer {
       }
 
       if (error.signal === 'SIGTERM' || (error.message && error.message.includes('ETIMEDOUT')) || (error.code === 'ETIMEDOUT')) {
+        logger.log('tool response timeout', { 
+          mode: 'oneshot',
+          timeoutMs,
+          stdout: error.stdout ? (error.stdout.substring(0, 1000) + (error.stdout.length > 1000 ? '...' : '')) : null,
+          stderr: error.stderr ? (error.stderr.substring(0, 1000) + (error.stderr.length > 1000 ? '...' : '')) : null
+        });
         throw new McpError(ErrorCode.InternalError, `Claude CLI command timed out after ${timeoutMs / 1000}s. Details: ${errorMessage}`);
       }
+      logger.log('tool error', { mode: 'oneshot', error: errorMessage });
       throw new McpError(ErrorCode.InternalError, `Claude CLI execution failed: ${errorMessage}`);
     }
   }
@@ -402,8 +425,11 @@ export class ClaudeCodeServer {
       return this.executeOneshot(prompt, effectiveCwd, requestSessionId);
     }
 
+    const logger = this.getLogger(effectiveCwd);
+
     try {
       debugLog(`[Debug] Attempting to execute Claude CLI (persistent) with prompt: "${prompt}" in CWD: "${effectiveCwd}"`);
+      logger.log('tool call (persistent)', { prompt: prompt.substring(0, 500) + (prompt.length > 500 ? '...' : '') });
 
       // If a specific session ID is provided, we might need to handle it differently
       // For now, the pool uses workFolder-based session management
@@ -426,14 +452,21 @@ export class ClaudeCodeServer {
         this.sessionManager.touchSession(effectiveCwd);
       }
 
+      logger.log('tool response (persistent)', { responseLength: response.length });
+
       return { content: [{ type: 'text', text: response }] };
 
     } catch (error: any) {
       debugLog('[Error] Error executing Claude CLI (persistent):', error);
 
+      let debugStatus = null;
       // If the persistent process failed, try to clean up and potentially fallback
       if (this.processManagerPool) {
         try {
+          const manager = await this.processManagerPool.getManager(effectiveCwd);
+          if (manager) {
+            debugStatus = manager.getDebugStatus();
+          }
           await this.processManagerPool.removeManager(effectiveCwd);
         } catch (cleanupError) {
           debugLog('[Warning] Failed to clean up process manager:', cleanupError);
@@ -444,14 +477,17 @@ export class ClaudeCodeServer {
 
       // Check if it's a timeout error
       if (error.message && error.message.includes('timed out')) {
+        logger.log('tool response timeout (persistent)', { error: errorMessage, debugStatus });
         throw new McpError(ErrorCode.InternalError, `Claude CLI command timed out. Details: ${errorMessage}`);
       }
 
       // Check if it's a process exit error
       if (error.message && error.message.includes('Process exited')) {
+        logger.log('tool process exited (persistent)', { error: errorMessage, debugStatus });
         throw new McpError(ErrorCode.InternalError, `Claude CLI process exited unexpectedly. Details: ${errorMessage}`);
       }
 
+      logger.log('tool error (persistent)', { error: errorMessage, debugStatus });
       throw new McpError(ErrorCode.InternalError, `Claude CLI execution failed: ${errorMessage}`);
     }
   }

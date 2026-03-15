@@ -511,6 +511,21 @@ export class ProcessManager extends EventEmitter {
   getStderrBuffer(): string {
     return this.stderrBuffer;
   }
+
+  /**
+   * Get debug status for logging purposes
+   */
+  getDebugStatus(): any {
+    return {
+      isProcessRunning: this.isProcessRunning(),
+      hasPendingRequest: !!this.pendingRequest,
+      accumulatedTextLength: this.pendingRequest?.accumulatedText.length || 0,
+      partialAccumulatedText: this.pendingRequest?.accumulatedText ? 
+        (this.pendingRequest.accumulatedText.substring(0, 500) + (this.pendingRequest.accumulatedText.length > 500 ? '...' : '')) : null,
+      stderrBufferLength: this.stderrBuffer.length,
+      partialStderr: this.stderrBuffer.substring(0, 500) + (this.stderrBuffer.length > 500 ? '...' : '')
+    };
+  }
 }
 
 /**
