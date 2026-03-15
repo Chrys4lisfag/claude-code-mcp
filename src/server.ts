@@ -125,7 +125,7 @@ export class ClaudeCodeServer {
 
     this.server.onerror = (error: Error) => console.error('[Error]', error);
     process.on('SIGINT', async () => {
-      console.log('Claude Code MCP server shutting down...');
+      console.error('Claude Code MCP server shutting down...');
       await this.shutdown();
       if (process.env.NODE_ENV !== 'test') {
         process.exit(0);
@@ -510,7 +510,7 @@ export class ClaudeCodeServer {
     try {
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
-      console.log('Claude Code MCP server running on stdio');
+      console.error('Claude Code MCP server running on stdio');
     } catch (e) {
       console.error(e);
       // Prevent process.exit during tests, which can prematurely end test execution

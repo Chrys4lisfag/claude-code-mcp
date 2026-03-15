@@ -7,7 +7,7 @@ import * as path from 'path';
 // Dedicated debug logging function
 export function debugLog(message?: any, ...optionalParams: any[]): void {
   if (process.env.MCP_CLAUDE_DEBUG === 'true') {
-    console.log('[ClaudeCodeMCP]', message, ...optionalParams);
+    console.error('[ClaudeCodeMCP]', message, ...optionalParams);
   }
 }
 
@@ -55,7 +55,7 @@ export function findClaudeCli(): string {
 
   // 3. Fallback to CLI name (PATH lookup)
   debugLog(`[Debug] Falling back to "${cliName}" command name, relying on spawn/PATH lookup.`);
-  console.warn(`[Warning] Claude CLI not found at ~/.claude/local/claude. Falling back to "${cliName}" in PATH. Ensure it is installed and accessible.`);
+  console.error(`[Warning] Claude CLI not found at ~/.claude/local/claude. Falling back to "${cliName}" in PATH. Ensure it is installed and accessible.`);
   return cliName;
 }
 

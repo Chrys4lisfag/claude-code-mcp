@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
@@ -11,7 +12,7 @@ export class ClaudeMock {
 
   constructor(binaryName: string = 'claude') {
     // Always use /tmp directory for mocks in tests
-    this.mockPath = join('/tmp', 'claude-code-test-mock', binaryName);
+    this.mockPath = join(tmpdir(), 'claude-code-test-mock', binaryName);
   }
 
   /**
